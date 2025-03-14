@@ -1,72 +1,74 @@
-# streamlit
-#app 
 import streamlit as st
-import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.neighbors import KNeighborsRegressor
-from sklearn.svm import SVR
-from sklearn.metrics import mean_squared_error, r2_score
+import pandas as pd
+import pickle
+import requests
+import plotly.express as px
+import matplotlib.pyplot as plt
 
-# Load and preprocess the dataset
-df = pd.read_csv('air quality data.csv')
-# Preprocessing steps (same as your previous code)
-# ...
+# Load trained model
+try:
+    with open("aqi_model.pkl", "rb") as model_file:
+        model = pickle.load(model_file)
+except FileNotFoundError:
+    model = None
+    st.error("⚠️ Model not found! Please upload 'aqi_model.pkl'.")
 
-# Feature & Target Selection
-X = df[['PM2.5', 'PM10', 'NO', 'NO2', 'NOx', 'NH3', 'CO', 'SO2', 'O3', 'Benzene', 'Toluene', 'Xylene']]
-y = df['AQI']
+# Fetch live AQI data from OpenWeatherMap API
+def fetch_live_aqi(city):
+    API_KEY = "your_api_key_here"  # Replace with a valid API key
+    url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat=28.61&lon=77.23&appid={API_KEY}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        aqi = data["list"][0]["main"]["aqi"]
+        return aqi
+    return None
 
-# Split the data into training and testing data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# AQI category function
+def get_aqi_category(aqi):
+    categories = ["🟢 Good", "🟡 Moderate", "🟠 Unhealthy for Sensitive Groups", "🔴 Unhealthy", "🟣 Very Unhealthy", "⚫ Hazardous"]
+    return categories[min(int(aqi // 50), 5)]
 
-# Scaling the data
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
+# Streamlit UI
+title = "🌍 Air Quality Index (AQI) Prediction"
+st.title(title)
+st.write("🔢 Enter pollutant levels to predict AQI and compare with live data.")
 
-# Define the models
-models = {
-    "Linear Regression": LinearRegression(),
-    "K-Nearest Neighbors": KNeighborsRegressor(),
-    "Decision Tree": DecisionTreeRegressor(),
-    "Random Forest": RandomForestRegressor(),
-    "Support Vector Regressor": SVR(),
-    "Gradient Boosting Regressor": GradientBoostingRegressor()
-}
+# User input
+pm25 = st.number_input("🌫️ PM2.5 (µg/m³)", min_value=0.0, format="%.2f")
+pm10 = st.number_input("🌪️ PM10 (µg/m³)", min_value=0.0, format="%.2f")
+no2 = st.number_input("🌫️ NO2 (ppb)", min_value=0.0, format="%.2f")
+so2 = st.number_input("💨 SO2 (ppb)", min_value=0.0, format="%.2f")
+co = st.number_input("🚗 CO (ppm)", min_value=0.0, format="%.2f")
+o3 = st.number_input("🌍 O3 (ppb)", min_value=0.0, format="%.2f")
+city = st.text_input("📍 Enter City Name (for live AQI):", "Delhi")
 
-# Streamlit application
-st.title("AQI Prediction Model")
+# Prediction
+if st.button("🔍 Predict AQI"):
+    if model:
+        input_data = np.array([[pm25, pm10, no2, so2, co, o3]])
+        predicted_aqi = model.predict(input_data)[0]
+        st.success(f"🌡️ **Predicted AQI: {predicted_aqi:.2f}** - {get_aqi_category(predicted_aqi)}")
+        
+        # Live AQI comparison
+        live_aqi = fetch_live_aqi(city)
+        if live_aqi:
+            st.write(f"🌎 **Live AQI in {city}: {live_aqi} - {get_aqi_category(live_aqi)}**")
+    else:
+        st.error("⚠️ Model not found. Please upload 'aqi_model.pkl'.")
 
-# Sidebar for selecting the model
-model_name = st.sidebar.selectbox("Select Model", list(models.keys()))
+# Data visualization
+if st.checkbox("📈 Show Pollutant Levels as Chart"):
+    pollutants = ["PM2.5", "PM10", "NO2", "SO2", "CO", "O3"]
+    values = [pm25, pm10, no2, so2, co, o3]
+    fig = px.bar(x=pollutants, y=values, labels={'x': 'Pollutants', 'y': 'Concentration'}, title="Pollutant Levels")
+    st.plotly_chart(fig)
 
-# Fit and evaluate the selected model
-model = models[model_name]
-model.fit(X_train, y_train)
-train_pred = model.predict(X_train)
-test_pred = model.predict(X_test)
-RMSE_train = np.sqrt(mean_squared_error(y_train, train_pred))
-RMSE_test = np.sqrt(mean_squared_error(y_test, test_pred))
-r2_train = r2_score(y_train, train_pred)
-r2_test = r2_score(y_test, test_pred)
+# Time Series Visualization (if dataset is available)
+if st.checkbox("📉 Show Historical AQI Trends"):
+    df = pd.read_csv("air_quality_data.csv")  # Ensure dataset is available
+    fig = px.line(df, x="Date", y="AQI", title="AQI Trends Over Time")
+    st.plotly_chart(fig)
 
-# Display results
-st.write(f"## {model_name} Results")
-st.write(f"### RMSE Train Data: {RMSE_train}")
-st.write(f"### RMSE Test Data: {RMSE_test}")
-st.write(f"### R Squared value for Train: {r2_train}")
-st.write(f"### R Squared value on Test: {r2_test}")
-
-# Option to view dataset
-if st.checkbox('Show dataset'):
-    st.write(df)
-
-# Visualizations
-st.write("## Data Distribution")
-st.write(sns.displot(df, x='AQI', color='red'))
-st.pyplot()
+st.write("💡 **Tip:** If AQI is hazardous, limit outdoor activities!")
